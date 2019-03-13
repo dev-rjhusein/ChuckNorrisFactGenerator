@@ -10,37 +10,59 @@ import java.io.InputStreamReader;
 import java.net.HttpURLConnection;
 import java.net.MalformedURLException;
 import java.net.URL;
+import java.util.concurrent.CountDownLatch;
 import java.util.logging.Logger;
 
 public class GetAJoke implements Runnable {
 
-    Logger logger = Logger.getLogger("My Logger");
+    private Logger logger = Logger.getLogger("GetAJoke Logger");
+
+    private JSONParser parser = new JSONParser();
+
+    private int errorCount = 1;
+
+    private CountDownLatch cnt;
 
     Thread thread;
 
-    GetAJoke() {
+    GetAJoke(CountDownLatch cnt) {
+        this.cnt = cnt;
         this.thread = new Thread(this);
     }
 
     @Override
     public void run() {
+
+        // Set chucknorris.io URL to random
+        URL randomJokeURL = setURL();
+
+        //Connect to API
+        HttpURLConnection connection = connectToApi(randomJokeURL);
+
+        //Convert return JSON to a JSON object
+        JSONObject response = jsonResponse(connection);
+
+        //Display the return value
+        System.out.println(response.get("value"));
+
+        //Decrement the CountDownLatch
+        cnt.countDown();
+
+    }
+
+    private URL setURL(){
         //REST api URL ATTRIBUTION: CHUCKNORRIS.IO
         URL url;
         try {
             url = new URL("https://api.chucknorris.io/jokes/random");
         }catch(MalformedURLException err){
-            err.printStackTrace();
-            throw new RuntimeException("DANG! The URL was messed up...");
+            logger.warning(">>> URL is malformed");
+            throw new RuntimeException("Program exiting -- URL could not reach server");
         }
+        return url;
+    }
 
-
-        BufferedReader restResponse;
-        JSONParser parser = new JSONParser();
-        Integer intNumberOfFacts = 1;
-
-        int errorCount = 1;
-
-
+    private HttpURLConnection connectToApi(URL url){
         HttpURLConnection connection;
         try {
             //Set connection from JSON format
@@ -51,24 +73,28 @@ public class GetAJoke implements Runnable {
             //If the site doesn't connect three times, terminate
             if (connection.getResponseCode() != 200) {
                 if (++errorCount > 3) {
-                    System.out.println("Too many failures -- Exiting.");
-                    return;
+                    logger.warning(">>> Too many failures -- Exiting.");
+                    throw new RuntimeException("Program Shutdown Unexpectedly");
                 }
-                System.out.println(connection.getResponseCode());
-                System.out.println("Ehh, something went wrong. Let's try again...");
-                return;
+                logger.warning(">>> Couldn't connect to server. Try again later");
+                throw new RuntimeException("Program Shutdown Unexpectedly");
             }
         }catch(IOException err){
-            err.printStackTrace();
+            logger.warning(">>> Corrupt Connection");
             throw new RuntimeException("The connection couldn't be made. Are you connected to the internet?");
         }
 
+        return connection;
+    }
+
+    private JSONObject jsonResponse(HttpURLConnection connection){
         //Put JSON response into BufferedReader
+        BufferedReader restResponse;
         try {
             restResponse = new BufferedReader(new InputStreamReader(connection.getInputStream()));
         }catch(IOException err){
-            err.printStackTrace();
-            throw new RuntimeException("The data didn't convert well. We done messed up, bro...");
+            logger.warning(">>> Data format refused proper conversion");
+            throw new RuntimeException("Program Shutdown Unexpectedly");
         }
 
         //Convert to JSON Object [GOOGLE SIMPLE JSON]
@@ -76,18 +102,10 @@ public class GetAJoke implements Runnable {
         try {
             obj = (JSONObject) parser.parse(restResponse);
         }catch(IOException | ParseException err){
-            err.printStackTrace();
-            throw new RuntimeException("The response wasn't quite what we expected... Sorry.");
+            logger.warning(">>> Data format refused proper conversion");
+            throw new RuntimeException("Program Shutdown Unexpectedly");
         }
 
-        System.out.println(obj.get("value"));
-
-
-        //Merge thread with the main thread;
-        try {
-            this.thread.join();
-        }catch(InterruptedException err){
-            System.out.println("Couldn't join " + this.thread.getName() + " to main thread");
-        }
+        return obj;
     }
 }
